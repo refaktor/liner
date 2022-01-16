@@ -90,6 +90,7 @@ func (s *State) inputWaiting() bool {
 }
 
 func (s *State) restartPrompt() {
+	s.SetMultiLineMode(false)
 	next := make(chan nexter, 200)
 	go func() {
 		for {

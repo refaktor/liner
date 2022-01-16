@@ -121,7 +121,7 @@ func (s *State) refreshSingleLine(prompt []rune, buf []rune, pos int) error {
 	}
 	pos = countGlyphs(buf[:pos])
 	if pLen+bLen < s.columns {
-		_, err = fmt.Print(string(buf))
+		_, err = fmt.Print(VerySimpleRyeHighlight(string(buf)))
 		s.eraseLine()
 		s.cursorPos(pLen + pos)
 	} else {
@@ -589,6 +589,17 @@ func (s *State) yank(p []rune, text []rune, pos int) ([]rune, int, interface{}, 
 	}
 }
 
+// JM 20201008
+// Move cursor up relative the current position
+func MoveCursorUp(bias int) {
+	fmt.Printf("\033[%dA", bias)
+}
+
+// Move cursor down relative the current position
+func MoveCursorDown(bias int) {
+	fmt.Printf("\033[%dB", bias)
+}
+
 // Prompt displays p and returns a line of user input, not including a trailing
 // newline character. An io.EOF error is returned if the user signals end-of-file
 // by pressing Ctrl-D. Prompt allows line editing if the terminal supports it.
@@ -602,6 +613,11 @@ func (s *State) Prompt(prompt string) (string, error) {
 // including a trailing newline character. An io.EOF error is returned if the user
 // signals end-of-file by pressing Ctrl-D.
 func (s *State) PromptWithSuggestion(prompt string, text string, pos int) (string, error) {
+
+	// JM 20201008
+	// codestr := "a: 100\nb: \"jim\"\nprint 1000 + 10 + a"
+	//codelines := strings.Split(codestr, ",\n")
+
 	for _, r := range prompt {
 		if unicode.Is(unicode.C, r) {
 			return "", ErrInvalidPrompt
@@ -646,6 +662,9 @@ func (s *State) PromptWithSuggestion(prompt string, text string, pos int) (strin
 restart:
 	s.startPrompt()
 	s.getColumns()
+
+	// JM
+	s_instr := 0
 
 mainLoop:
 	for {
@@ -829,7 +848,18 @@ mainLoop:
 			case esc:
 				// DO NOTHING
 			// Unused keys
-			case ctrlG, ctrlO, ctrlQ, ctrlS, ctrlV, ctrlX, ctrlZ:
+			case ctrlG:
+				// JM experimenting 20200108
+				//for _, l := range codelines {
+				//		MoveCursorDown(2)
+				//		fmt.Print(l)
+				//	}
+				//MoveCursorDown(len(codelines))
+				return "", ErrJMCodeUp
+				//line = []rune(codelines[len(codelines)-1])
+				//pos = len(line)
+				s.needRefresh = true
+			case ctrlS, ctrlO, ctrlQ, ctrlV, ctrlX, ctrlZ:
 				fallthrough
 			// Catch unhandled control codes (anything <= 31)
 			case 0, 28, 29, 30, 31:
@@ -840,11 +870,16 @@ mainLoop:
 					countGlyphs(p)+countGlyphs(line) < s.columns-1 {
 					line = append(line, v)
 					fmt.Printf("%c", v)
+					s.needRefresh = true // JM ---
 					pos++
+
 				} else {
 					line = append(line[:pos], append([]rune{v}, line[pos:]...)...)
 					pos++
 					s.needRefresh = true
+				}
+				if s_instr == 2 && string(v) == "\"" {
+					s_instr = 0
 				}
 			}
 		case action:
@@ -1031,6 +1066,10 @@ func (s *State) PasswordPrompt(prompt string) (string, error) {
 	}
 
 	p := []rune(prompt)
+	const minWorkingSpace = 1
+	if s.columns < countGlyphs(p)+minWorkingSpace {
+		return s.tooNarrow(prompt)
+	}
 
 	defer s.stopPrompt()
 
@@ -1056,6 +1095,15 @@ mainLoop:
 		case rune:
 			switch v {
 			case cr, lf:
+				if s.needRefresh {
+					err := s.refresh(p, line, pos)
+					if err != nil {
+						return "", err
+					}
+				}
+				if s.multiLineMode {
+					s.resetMultiLine(p, line, pos)
+				}
 				fmt.Println()
 				break mainLoop
 			case ctrlD: // del
@@ -1083,6 +1131,9 @@ mainLoop:
 				}
 			case ctrlC:
 				fmt.Println("^C")
+				if s.multiLineMode {
+					s.resetMultiLine(p, line, pos)
+				}
 				if s.ctrlCAborts {
 					return "", ErrPromptAborted
 				}
@@ -1167,4 +1218,82 @@ func (s *State) doBeep() {
 	if !s.noBeep {
 		fmt.Print(beep)
 	}
+}
+
+const bright = "\x1b[1m"
+const dim = "\x1b[2m"
+const black = "\x1b[30m"
+const red = "\x1b[31m"
+const green = "\x1b[32m"
+const yellow = "\x1b[33m"
+const blue = "\x1b[34m"
+const magenta = "\x1b[35m"
+const cyan = "\x1b[36m"
+const white = "\x1b[37m"
+const reset = "\x1b[0m"
+const reset2 = "\033[39;49m"
+
+const color_word = "\x1b[38;5;45m"
+const color_word2 = "\033[38;5;214m"
+const color_num2 = "\033[38;5;202m"
+const color_string2 = "\033[38;5;148m"
+const color_comment = "\033[38;5;247m"
+
+func VerySimpleRyeHighlight(c string) string {
+	var r strings.Builder
+	s_in := 0
+	s_instr := 0
+	s_word := 0
+	s_num := 0
+	s_comment := 0
+	for _, char := range c {
+
+		if s_comment == 2 {
+			r.WriteRune(char)
+		} else if s_in == 0 && char == ';' {
+			//			if len(c) > pos+1 && c[pos+1] == '/' {
+				r.WriteString(color_comment)
+				s_comment = 1
+				s_in = 1
+			//}
+			r.WriteRune(char)
+		} else if s_in == 0 && unicode.IsNumber(char) {
+			if s_num == 0 {
+				s_num = 1
+				s_in = 1
+				r.WriteString(color_num2)
+				r.WriteRune(char)
+			}
+		} else if s_in == 0 && (unicode.IsLetter(char) || char == '.' || char == '|') {
+			if s_word == 0 {
+				s_word = 1
+				s_in = 1
+				//				r.WriteString(bright)
+				r.WriteString(color_word2)
+				r.WriteRune(char)
+			}
+		} else if char == '"' {
+			if s_instr == 0 {
+				s_instr = 1
+				s_in = 1
+				r.WriteString(color_string2)
+				r.WriteRune(char)
+			} else {
+				r.WriteRune(char)
+				r.WriteString(reset)
+				s_instr = 0
+				s_in = 0
+			}
+		} else if s_in == 1 && s_instr == 0 && s_comment == 0 && char == ' ' {
+			r.WriteRune(char)
+			r.WriteString(reset)
+			s_word = 0
+			s_num = 0
+			s_in = 0
+		} else {
+			r.WriteRune(char)
+		}
+	}
+	r.WriteString(reset)
+	return r.String()
 }

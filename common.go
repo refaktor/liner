@@ -52,6 +52,9 @@ const (
 	TabPrints
 )
 
+// JM 20201008
+var ErrJMCodeUp = errors.New("cmd code up")
+
 // ErrPromptAborted is returned from Prompt or PasswordPrompt when the user presses Ctrl-C
 // if SetCtrlCAborts(true) has been called on the State
 var ErrPromptAborted = errors.New("prompt aborted")
