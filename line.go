@@ -1157,10 +1157,6 @@ mainLoop:
 	return string(line), nil
 }
 
-
-####
-
-
 // START OUR SIMPLE PROMPT
 
 // PasswordPrompt displays p, and then waits for user input. The input typed by
