@@ -1286,6 +1286,142 @@ mainLoop:
 
 // END OUR SIMPLE PROMPT
 
+// START OUR SIMPLE TEXT FIELD
+
+// PasswordPrompt displays p, and then waits for user input. The input typed by
+// the user is not displayed in the terminal.
+func (s *State) SimpleTextField(prompt string, length int) (string, error) {
+	for _, r := range prompt {
+		if unicode.Is(unicode.C, r) {
+			return "", ErrInvalidPrompt
+		}
+	}
+	if !s.terminalSupported || s.columns == 0 {
+		return "", errors.New("liner: function not supported in this terminal")
+	}
+	if s.inputRedirected {
+		return s.promptUnsupported(prompt)
+	}
+	if s.outputRedirected {
+		return "", ErrNotTerminalOutput
+	}
+
+	p := []rune(prompt)
+	const minWorkingSpace = 1
+	if s.columns < countGlyphs(p)+minWorkingSpace {
+		return s.tooNarrow(prompt)
+	}
+
+	defer s.stopPrompt()
+
+restart:
+	s.startPrompt()
+	s.getColumns()
+
+	fmt.Print(prompt)
+	var line []rune
+	pos := 0
+
+mainLoop:
+	for {
+		next, err := s.readNext()
+		if err != nil {
+			if s.shouldRestart != nil && s.shouldRestart(err) {
+				goto restart
+			}
+			return "", err
+		}
+
+		switch v := next.(type) {
+		case rune:
+			switch v {
+			case cr, lf:
+				if s.needRefresh {
+					err := s.refresh(p, line, pos)
+					if err != nil {
+						return "", err
+					}
+				}
+				if s.multiLineMode {
+					s.resetMultiLine(p, line, pos)
+				}
+				fmt.Println()
+				break mainLoop
+			case ctrlD: // del
+				if pos == 0 && len(line) == 0 {
+					// exit
+					return "", io.EOF
+				}
+
+				// ctrlD is a potential EOF, so the rune reader shuts down.
+				// Therefore, if it isn't actually an EOF, we must re-startPrompt.
+				s.restartPrompt()
+			case ctrlL: // clear screen
+				s.eraseScreen()
+				err := s.refresh(p, []rune{}, 0)
+				if err != nil {
+					return "", err
+				}
+			case ctrlH, bs: // Backspace
+				// fmt.Println("BACKSPACE")
+				if pos <= 0 {
+					s.doBeep()
+				} else {
+					n := len(getSuffixGlyphs(line[:pos], 1))
+					// line = append(line[:pos-n], line[pos:]...)
+					s.needRefresh = true
+					line = line[0 : pos-n]
+					pos -= n
+					goto restart
+				}
+			case ctrlC:
+				fmt.Println("^C")
+				if s.multiLineMode {
+					s.resetMultiLine(p, line, pos)
+				}
+				if s.ctrlCAborts {
+					return "", ErrPromptAborted
+				}
+				line = line[:0]
+				pos = 0
+				fmt.Print(prompt)
+				s.restartPrompt()
+			// Unused keys
+			case esc, tab, ctrlA, ctrlB, ctrlE, ctrlF, ctrlG, ctrlK, ctrlN, ctrlO, ctrlP, ctrlQ, ctrlR, ctrlS,
+				ctrlT, ctrlU, ctrlV, ctrlW, ctrlX, ctrlY, ctrlZ:
+				fallthrough
+			// Catch unhandled control codes (anything <= 31)
+			case 0, 28, 29, 30, 31:
+				s.doBeep()
+			default:
+				if pos == len(line) && !s.multiLineMode &&
+					len(p)+len(line) < s.columns*4 && // Avoid countGlyphs on large lines
+					countGlyphs(p)+countGlyphs(line) < s.columns-10 {
+
+					if countGlyphs(line)+1 < length { //fmt.Println("ADD1")
+						line = append(line, v)
+						fmt.Printf("%c", v)
+						// s.needRefresh = true // JM ---
+						pos++
+					}
+					s.doBeep()
+				} else {
+					fmt.Println("ADD2")
+					line = append(line[:pos], append([]rune{v}, line[pos:]...)...)
+					pos++
+					s.needRefresh = true
+				}
+			}
+			//default:
+			//	line = append(line[:pos], append([]rune{v}, line[pos:]...)...)
+			//	pos++
+			//}
+		}
+	}
+	return string(line), nil
+}
+
+// END OUR TEXT FIELD
 
 
 func (s *State) tooNarrow(prompt string) (string, error) {
