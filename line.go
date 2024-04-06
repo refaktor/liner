@@ -1500,11 +1500,11 @@ const white = "\x1b[37m"
 const reset = "\x1b[0m"
 const reset2 = "\033[39;49m"
 
-const color_word = "\x1b[38;5;45m"
-const color_word2 = "\033[38;5;214m"
-const color_num2 = "\033[38;5;202m"
-const color_string2 = "\033[38;5;148m"
-const color_comment = "\033[38;5;247m"
+const color_word = "\x1b[33m" // "\x1b[38;5;45m"
+const color_word2 = "\x1b[36m" // "\033[38;5;214m"
+const color_num2 = "\x1b[34m // "\033[38;5;202m"
+const color_string2 = "\x1b[32m" // "\033[38;5;148m"
+const color_comment = "\x1b[2m" // "\033[38;5;247m"
 
 func VerySimpleRyeHighlight(c string) string {
 	var r strings.Builder
